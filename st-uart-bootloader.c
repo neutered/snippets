@@ -114,9 +114,19 @@ static int param_issue(int fd, const uint8_t* param, uint8_t nparam) {
   assert(n == 1);
   assert(FD_ISSET(fd, &fds));
 
-  uint8_t xsum = 0;
-  for (int i = 0; i < nparam; i++)
-    xsum ^= param[i];
+  /* the doc mumbles about xor(param bytes) but then says
+   * for size==1 data that it's the complement. i'm not sure
+   * how both can be true.
+   */
+  uint8_t xsum;
+  assert(nparam > 0);
+  if (nparam == 1) {
+    xsum = ~param[0];
+  } else {
+    xsum = 0;
+    for (int i = 0; i < nparam; i++)
+      xsum ^= param[i];
+  }
 
   struct iovec iovs[2];
   iovs[0].iov_base = (void*)param;
@@ -130,7 +140,7 @@ static int param_issue(int fd, const uint8_t* param, uint8_t nparam) {
             errno, strerror(errno));
   assert(io == nparam + 1);
 
-  /* wait for nack */
+  /* wait for ack/nack */
   n = select(fd + 1, &fds, NULL, NULL, &to);
   if (n < 0)
     fprintf(stderr, "%s:%d: select:%d:%s\n",
@@ -149,6 +159,7 @@ static int param_issue(int fd, const uint8_t* param, uint8_t nparam) {
             __func__, __LINE__,
             errno, strerror(errno));
   assert(io > 0);
+  fprintf(stderr, "%s:%d: ack:%02x\n", __func__, __LINE__, ack);
   return ack == RESP_ACK;
 }
 
@@ -225,8 +236,21 @@ static void cmd_get_id(int fd, uint8_t* bs, size_t nbs) {
   hexdump("get_id", 0, bs, nb);
 }
 
+static void cmd_read_unprotect(int fd, uint8_t* bs, size_t nbs) {
+  ssize_t nb = cmd_issue(fd, 0x92, bs, nbs);
+  assert(bs[0] == RESP_ACK);
+
+  /* data should look like:
+   *   ack <erasing time> ack|nack
+   */
+  assert(nb >= 1);
+  while (nb < 1 + 1)
+    nb = read_n(fd, nb, 1 + 1, bs, nbs);
+  hexdump("read_unprotect", 0, bs, nb);
+}
+
 static void cmd_read_mem(int fd,
-                         uint32_t addr, uint8_t n,
+                         uint32_t addr, uint32_t n,
                          uint8_t* bs, size_t nbs) {
   assert(nbs >= 4);
   assert(nbs >= n);
@@ -238,7 +262,18 @@ static void cmd_read_mem(int fd,
   bs[1] = (addr >> 16) & 0xff;
   bs[2] = (addr >> 8) & 0xff;
   bs[3] = (addr >> 0) & 0xff;
-  param_issue(fd, bs, 4);
+  int issue = param_issue(fd, bs, 4);
+  assert(issue);
+
+  /* send n-1 to receive n */
+  assert(n > 0);
+  assert(n <= 0x100);
+  bs[0] = n - 1;
+  issue = param_issue(fd, bs, 1);
+  assert(issue);
+
+  nb = read_n(fd, 0, n, bs, nbs);
+  hexdump("read_mem", 0, bs, nb);
 }
 
 int main(int argc, char** argv) {
@@ -284,9 +319,17 @@ int main(int argc, char** argv) {
   assert(buf[0] == RESP_ACK || buf[0] == RESP_NACK);
 
   cmd_get(fd, buf, sizeof(buf));
-  cmd_get_version_info(fd, buf, sizeof(buf));
   cmd_get_id(fd, buf, sizeof(buf));
-  cmd_read_mem(fd, 0, 0x10, buf, sizeof(buf));
+  cmd_get_version_info(fd, buf, sizeof(buf));
+  #if 0
+  /* i think the doc says that these always read as zero?
+   * - option bytes should be complements
+   * - only one unprotect setting
+   */
+  if ((buf[2] != ~buf[3]) || (buf[2] != 0xa5))
+    cmd_read_unprotect(fd, buf, sizeof(buf));
+  #endif
+  cmd_read_mem(fd, 0x08000000, 0x10, buf, sizeof(buf));
 
   close(fd);
 
