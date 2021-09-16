@@ -94,7 +94,8 @@ static ssize_t cmd_issue(int fd, uint8_t cmd, uint8_t* bs, size_t nbs) {
   return io;
 }
 
-static int param_issue(int fd, const uint8_t* param, uint8_t nparam) {
+static int param_issue(int fd, int prependn,
+                       const uint8_t* param, uint8_t nparam) {
   struct timeval to;
   memset(&to, 0, sizeof(to));
   to.tv_sec = 8;
@@ -118,27 +119,33 @@ static int param_issue(int fd, const uint8_t* param, uint8_t nparam) {
    * for size==1 data that it's the complement. i'm not sure
    * how both can be true.
    */
+  uint8_t temp = prependn ? (nparam - 1) : 0;
   uint8_t xsum;
   assert(nparam > 0);
   if (nparam == 1) {
     xsum = ~param[0];
   } else {
-    xsum = 0;
+    xsum = temp;
     for (int i = 0; i < nparam; i++)
       xsum ^= param[i];
   }
 
-  struct iovec iovs[2];
-  iovs[0].iov_base = (void*)param;
-  iovs[0].iov_len = nparam;
-  iovs[1].iov_base = &xsum;
-  iovs[1].iov_len = 1;
-  ssize_t io = writev(fd, iovs, sizeof(iovs) / sizeof(iovs[0]));
-  if (io != nparam + 1)
+  struct iovec iovs[3];
+  int i = 0;
+  if (prependn) {
+    iovs[i].iov_base = &temp;
+    iovs[i++].iov_len = 1;
+  }
+  iovs[i].iov_base = (void*)param;
+  iovs[i++].iov_len = nparam;
+  iovs[i].iov_base = &xsum;
+  iovs[i++].iov_len = 1;
+  ssize_t io = writev(fd, iovs, i);
+  if (io != prependn + nparam + 1)
     fprintf(stderr, "%s:%d: write:%d:%s\n",
             __func__, __LINE__,
             errno, strerror(errno));
-  assert(io == nparam + 1);
+  assert(io == prependn + nparam + 1);
 
   /* wait for ack/nack */
   n = select(fd + 1, &fds, NULL, NULL, &to);
@@ -252,28 +259,51 @@ static void cmd_read_unprotect(int fd, uint8_t* bs, size_t nbs) {
 static void cmd_read_mem(int fd,
                          uint32_t addr, uint32_t n,
                          uint8_t* bs, size_t nbs) {
-  assert(nbs >= 4);
+  uint8_t temp[4];
   assert(nbs >= n);
-  size_t nb = cmd_issue(fd, 0x11, bs, nbs);
-  assert(bs[0] == RESP_ACK);
+  size_t nb = cmd_issue(fd, 0x11, temp, sizeof(temp));
+  assert(temp[0] == RESP_ACK);
 
   /* address in big-endian */
-  bs[0] = (addr >> 24) & 0xff;
-  bs[1] = (addr >> 16) & 0xff;
-  bs[2] = (addr >> 8) & 0xff;
-  bs[3] = (addr >> 0) & 0xff;
-  int issue = param_issue(fd, bs, 4);
+  temp[0] = (addr >> 24) & 0xff;
+  temp[1] = (addr >> 16) & 0xff;
+  temp[2] = (addr >> 8) & 0xff;
+  temp[3] = (addr >> 0) & 0xff;
+  int issue = param_issue(fd, 0, temp, 4);
   assert(issue);
 
   /* send n-1 to receive n */
   assert(n > 0);
   assert(n <= 0x100);
-  bs[0] = n - 1;
-  issue = param_issue(fd, bs, 1);
+  temp[0] = n - 1;
+  issue = param_issue(fd, 0, temp, 1);
   assert(issue);
 
   nb = read_n(fd, 0, n, bs, nbs);
   hexdump("read_mem", 0, bs, nb);
+}
+
+static void cmd_write_mem(int fd,
+                          uint32_t addr, uint32_t n,
+                          const uint8_t* bs) {
+  assert(n > 0);
+  assert(n <= 0x100);
+  assert((n & 3) == 0);
+
+  uint8_t temp[4];
+  size_t nb = cmd_issue(fd, 0x31, temp, sizeof(temp));
+  assert(temp[0] == RESP_ACK);
+
+  /* address in big-endian */
+  temp[0] = (addr >> 24) & 0xff;
+  temp[1] = (addr >> 16) & 0xff;
+  temp[2] = (addr >> 8) & 0xff;
+  temp[3] = (addr >> 0) & 0xff;
+  int issue = param_issue(fd, 0, temp, 4);
+  assert(issue);
+
+  issue = param_issue(fd, 1, bs, n);
+  assert(issue);
 }
 
 int main(int argc, char** argv) {
@@ -329,7 +359,11 @@ int main(int argc, char** argv) {
   if ((buf[2] != ~buf[3]) || (buf[2] != 0xa5))
     cmd_read_unprotect(fd, buf, sizeof(buf));
   #endif
-  cmd_read_mem(fd, 0x08000000, 0x10, buf, sizeof(buf));
+cmd_read_mem(fd, 0x20004ff0, 0x10, buf, sizeof(buf));
+for (int i = 0; i < 0x10; i++)
+  buf[i] = ~buf[i];
+cmd_write_mem(fd, 0x20004ff0, 0x10, buf);
+cmd_read_mem(fd, 0x20004ff0, 0x10, buf, sizeof(buf));
 
   close(fd);
 
