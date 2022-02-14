@@ -127,7 +127,10 @@ for p in sys.argv[1:]:
         inters.append(t.tinter)
         releases.append(t.trelease)
     print 'press:%f:%f' % (numpy.median(presses), numpy.std(presses))
+    print '\t%s' % str(numpy.histogram(presses, 10, density=True))
     print 'inters:%f:%f' % (numpy.median(inters), numpy.std(inters))
+    print '\t%s' % str(numpy.histogram(inters, 10, density=True))
     print 'release:%f:%f' % (numpy.median(releases), numpy.std(releases))
+    print '\t%s' % str(numpy.histogram(releases, 10, density=True))
 
     f.close()
