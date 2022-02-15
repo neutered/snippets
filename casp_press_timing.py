@@ -21,10 +21,12 @@ class phase:
         self.min = 4096
         self.max = -4096
         self.area = 0
+        self.narea = 0
 
-    def add(self, v):
+    def add(self, v, accum=True):
         self.vals.append(v)
-        self.area += v
+        if accum:
+            self.area += v
         if v < self.min:
             self.min = v
         if v > self.max:
@@ -34,7 +36,19 @@ class phase:
         assert n >= 0
         if n == 0:
             return
-        self.vals = self.vals[0:len(self.vals) - n]
+        temp = self.vals[0:len(self.vals) - n]
+        self.min = 4096
+        self.max = -4096
+        self.area = 0
+        first_release = 0
+        for c in temp:
+            if first_release == 0 and c < -noise_rms:
+                first_release = 1
+            elif first_release == 1 and c > -noise_rms:
+                first_release = -1
+            if first_release == 1:
+                self.narea += 1
+            self.add(c, first_release == 1)
 
 class transaction:
     def __init__(self, p, i, r):
@@ -123,17 +137,32 @@ for p in sys.argv[1:]:
 
 rows = []
 presses = []
+ap = []
 inters = []
+ai = []
+ti = []
 releases = []
+ar = []
 for t in transactions:
     presses.append(t.tpress)
+    ap.append(t.press.area)
     inters.append(t.tinter)
+    ai.append(t.inter.area)
+    ti.append(t.inter.narea)
     releases.append(t.trelease)
+    ar.append(t.release.area)
     rows.append([t.tpress, t.tinter, t.trelease])
-print 'press:%f:%f' % (numpy.median(presses), numpy.std(presses))
-print '\t%s' % str(numpy.histogram(presses, 10, density=True))
-print 'inters:%f:%f' % (numpy.median(inters), numpy.std(inters))
-print '\t%s' % str(numpy.histogram(inters, 10, density=True))
-print 'release:%f:%f' % (numpy.median(releases), numpy.std(releases))
-print '\t%s' % str(numpy.histogram(releases, 10, density=True))
+print 'press:%f:%f %f:%f' % (numpy.median(presses), numpy.std(presses), numpy.median(ap), numpy.std(ap))
+print '\t%s' % str(numpy.histogram(presses, 10, density=False))
+print '\t%s' % str(numpy.histogram(ap, 10, density=False))
+print 'inters:%f:%f %f:%f %f:%f' % (numpy.median(inters), numpy.std(inters), numpy.median(ti), numpy.std(ti), numpy.median(ai), numpy.std(ai))
+print '\t%s' % str(numpy.histogram(inters, 10, density=False))
+print '\t%s' % str(numpy.histogram(ti, 10, density=False))
+print '\t%s' % str(numpy.histogram(ai, 10, density=False))
+print 'release:%f:%f %f:%f' % (numpy.median(releases), numpy.std(releases), numpy.median(ar), numpy.std(ar))
+print '\t%s' % str(numpy.histogram(releases, 10, density=False))
+print '\t%s' % str(numpy.histogram(ar, 10, density=False))
 
+writer = csv.writer(sys.stderr)
+writer.writerow('pir')
+writer.writerows(rows)
