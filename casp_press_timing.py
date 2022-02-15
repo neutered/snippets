@@ -51,7 +51,7 @@ for p in sys.argv[1:]:
     try:
         f = open(p, 'r')
     except IOError as e:
-        print >> sys.stderr, 'open(%s) : %s' % (p, str(e))
+        print >> sys.stderr, 'input open(%s) : %s' % (p, str(e))
         continue
 
     reader = csv.reader(f)
@@ -119,18 +119,21 @@ for p in sys.argv[1:]:
         if len(release.vals) > 0:
             transactions.append(transaction(press, inter, release))
 
-    presses = []
-    inters = []
-    releases = []
-    for t in transactions:
-        presses.append(t.tpress)
-        inters.append(t.tinter)
-        releases.append(t.trelease)
-    print 'press:%f:%f' % (numpy.median(presses), numpy.std(presses))
-    print '\t%s' % str(numpy.histogram(presses, 10, density=True))
-    print 'inters:%f:%f' % (numpy.median(inters), numpy.std(inters))
-    print '\t%s' % str(numpy.histogram(inters, 10, density=True))
-    print 'release:%f:%f' % (numpy.median(releases), numpy.std(releases))
-    print '\t%s' % str(numpy.histogram(releases, 10, density=True))
-
     f.close()
+
+rows = []
+presses = []
+inters = []
+releases = []
+for t in transactions:
+    presses.append(t.tpress)
+    inters.append(t.tinter)
+    releases.append(t.trelease)
+    rows.append([t.tpress, t.tinter, t.trelease])
+print 'press:%f:%f' % (numpy.median(presses), numpy.std(presses))
+print '\t%s' % str(numpy.histogram(presses, 10, density=True))
+print 'inters:%f:%f' % (numpy.median(inters), numpy.std(inters))
+print '\t%s' % str(numpy.histogram(inters, 10, density=True))
+print 'release:%f:%f' % (numpy.median(releases), numpy.std(releases))
+print '\t%s' % str(numpy.histogram(releases, 10, density=True))
+
