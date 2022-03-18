@@ -6,7 +6,7 @@ import numpy
 import scipy
 import sys
 
-signals = {}
+raws = {}
 
 assert len(sys.argv) > 1
 for p in sys.argv[1:]:
@@ -16,11 +16,12 @@ for p in sys.argv[1:]:
         print >> sys.stderr, 'input open(%s) : %s' % (p, str(e))
         continue
     l = p.split('/')[-1]
-    title_prefix = l.split('.')[0]
+    prefix = l.split('.')[0]
 
     reader = csv.reader(f)
     cols = reader.next()
-    print str(cols)
+
+    signals = dict()
     for c in cols:
         signals[c] = list()
 
@@ -29,11 +30,31 @@ for p in sys.argv[1:]:
         for c in cols:
             signals[c].append(int(l[i]))
             i = i + 1
-    xs = [x*0.01 for x in xrange(len(signals[cols[0]]))]
+    raws[prefix] = signals
 
-    for c in cols:
-        yf = numpy.fft.fft(signals[c], norm=None)
-        xf = numpy.fft.fftfreq(len(signals[c]), 0.01)
-        matplotlib.pyplot.plot(xf, numpy.abs(yf))
-        matplotlib.pyplot.title(title_prefix + '-' + c)
+height = 20000
+width = -1
+for prefix,signals in raws.items():
+    for c in signals.keys():
+        n = len(signals[c])
+        print 'prefix:%s width:%d n:%d' % (prefix, width, n)
+        if width == -1 or n < width:
+            width = n
+        break
+print 'width:%d' % width
+
+origs = dict()
+signals = raws['orig']
+for c in signals.keys():
+    origs[c] = numpy.fft.fft(signals[c][:width], norm=None)
+
+for prefix,signals in raws.items():
+    for c in signals.keys():
+        yf = numpy.fft.fft(signals[c][:width], norm=None)
+        xf = numpy.fft.fftfreq(width, 0.01)
+        matplotlib.pyplot.plot(xf, numpy.abs(origs[c]), 'r')
+        if prefix != 'orig':
+            matplotlib.pyplot.plot(xf, numpy.abs(yf), 'b', alpha=0.5)
+        matplotlib.pyplot.title(prefix + '-' + c)
+        matplotlib.pyplot.ylim(0, height)
         matplotlib.pyplot.show()
